@@ -18,8 +18,10 @@ struct Groups {
 impl Groups{
     fn new() -> Self {
         let (tx, _) = broadcast::channel(32);
+        let (tx2, _) = broadcast::channel(32);
         let mut hm: HashMap<String, Sender<String>> = HashMap::new();
         hm.insert("main".to_string(), tx);
+        hm.insert("main2".to_string(), tx2);
         Self {
             groups: Arc::new(Mutex::new(hm)),
         }
@@ -56,7 +58,7 @@ async fn handle_client<'a>(mut tcp: TcpStream, groups: Groups, names: Names) -> 
     let mut sink = FramedWrite::new(writer, LinesCodec::new());
 
     let mut name = String::new();
-    let tx = groups.join("main").await.unwrap();
+    let mut tx = groups.join("main").await.unwrap();
 
     sink.send("Pls enter your name").await?;
     // if Some(Ok) => client connected and sent message
@@ -96,8 +98,14 @@ async fn handle_client<'a>(mut tcp: TcpStream, groups: Groups, names: Names) -> 
                         }
                     }
                     else if user_msg.starts_with("/join"){
-                        let room_name = user_msg.split_whitespace().nth(1).unwrap().to_string();Ц
-
+                        let room_name = user_msg.split_whitespace().nth(1).unwrap().to_string();
+                        
+                        if let Some(new_tx) = groups.join(&room_name).await {
+                            tx = new_tx;
+                            rx = tx.subscribe();
+                        } else {
+                            sink.send(format!("Failed joining room")).await?;
+                        }
                     } else {
                         let _ = tx.send(format!("{}: {}", name, user_msg));
                     }
@@ -128,6 +136,8 @@ async fn main() -> anyhow::Result<()> {
 
     let names = Names::new();
     let groups = Groups::new();
+
+
 
     loop {
         let (tcp, _) = listener.accept().await?;
